@@ -1,0 +1,255 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>IMEI生成器</title>
+  <style>
+    :root{
+      --bg:#f6f7f9;
+      --card:#fff;
+      --muted:#6b6f76;
+      --accent:#2b6cb0;
+      --pill:#f1f5f9;
+    }
+    body{
+      margin:0;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial;
+      background: linear-gradient(180deg,#e9eef6, #f6f7f9);
+      min-height:100vh;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      padding:24px;
+    }
+    .card{
+      width:420px;
+      background:var(--card);
+      border-radius:12px;
+      box-shadow: 0 8px 30px rgba(30,40,60,0.12);
+      padding:28px;
+    }
+    h1{
+      margin:0 0 18px 0;
+      font-size:20px;
+      color:#111827;
+    }
+    .row{
+      display:flex;
+      align-items:center;
+      margin:12px 0;
+    }
+    .label{
+      width:110px;
+      color:var(--muted);
+      font-size:15px;
+    }
+    input[type="text"], input[type="number"]{
+      flex:1;
+      padding:10px 14px;
+      border-radius:22px;
+      border:1px solid #e6e9ee;
+      background:var(--pill);
+      outline:none;
+      font-size:15px;
+      box-sizing:border-box;
+    }
+    .actions{
+      display:flex;
+      gap:10px;
+      margin-top:18px;
+      align-items:center;
+    }
+    button{
+      padding:10px 14px;
+      border-radius:8px;
+      border: none;
+      cursor:pointer;
+      font-size:14px;
+    }
+    button.primary{
+      background:var(--accent);
+      color:#fff;
+      box-shadow: 0 6px 14px rgba(43,108,176,0.22);
+    }
+    button.ghost{
+      background:transparent;
+      color:var(--accent);
+      border:1px solid #d6e3f6;
+    }
+    .result{
+      margin-top:16px;
+      color:#111827;
+      font-size:16px;
+    }
+    .sub{
+      color:var(--muted);
+      font-size:13px;
+      margin-top:6px;
+    }
+    .toast{
+      position:fixed;
+      right:20px;
+      bottom:20px;
+      background:#111827;
+      color:#fff;
+      padding:10px 14px;
+      border-radius:8px;
+      opacity:0;
+      transform:translateY(10px);
+      transition:all .25s ease;
+      pointer-events:none;
+    }
+    .toast.show{
+      opacity:1;
+      transform:translateY(0);
+      pointer-events:auto;
+    }
+    .formula{
+      margin-top:8px;
+      color:var(--muted);
+      font-size:13px;
+    }
+    small.error{
+      color:#b91c1c;
+      display:block;
+      margin-top:6px;
+    }
+  </style>
+</head>
+<body>
+  <div class="card" role="main">
+    <h1>IMEI 生成器</h1>
+
+    <div class="row">
+      <div class="label">原始串号（X）</div>
+      <input id="inputX" type="text" inputmode="numeric" placeholder="例如：860123456789012" />
+    </div>
+
+    <div class="row">
+      <div class="label">延长天数（Y）</div>
+      <input id="inputY" type="number" inputmode="numeric" placeholder="例如：30" />
+    </div>
+
+    <div class="actions">
+      <button id="btnGenerate" class="primary">生成新串号</button>
+      <button id="btnCopy" class="ghost" title="复制结果到剪贴板">复制</button>
+    </div>
+
+    <div class="result" aria-live="polite">
+      结果：<span id="resultZ">—</span>
+      <div class="formula">计算（已化简）: <code>Z = 3 × X - 11106 + 9999 × Y</code></div>
+      <small class="sub">说明：若 X 或 Y 非有效整数，将提示错误；为保证大数安全，使用整数运算。</small>
+      <small id="err" class="error" style="display:none"></small>
+    </div>
+  </div>
+
+  <div id="toast" class="toast">已复制到剪贴板</div>
+
+  <script>
+    const elX = document.getElementById('inputX');
+    const elY = document.getElementById('inputY');
+    const btnGen = document.getElementById('btnGenerate');
+    const btnCopy = document.getElementById('btnCopy');
+    const out = document.getElementById('resultZ');
+    const err = document.getElementById('err');
+    const toast = document.getElementById('toast');
+
+    function showError(msg){
+      err.textContent = msg;
+      err.style.display = msg ? 'block' : 'none';
+    }
+
+    function showToast(text = '已复制到剪贴板'){
+      toast.textContent = text;
+      toast.classList.add('show');
+      setTimeout(()=> toast.classList.remove('show'), 1800);
+    }
+
+    // 验证并规范化输入为 BigInt
+    function parseBigIntInput(value){
+      if(value === null || value === undefined) throw new Error('输入为空');
+      const s = String(value).trim();
+      if(s.length === 0) throw new Error('输入为空');
+      // 允许以 + 或 - 开头
+      const ok = /^[+-]?\d+$/.test(s);
+      if(!ok) throw new Error('请输入整数数字（不含小数、字母）');
+      try{
+        return BigInt(s);
+      }catch(e){
+        throw new Error('数字超出范围或格式错误');
+      }
+    }
+
+    function computeZ(Xbig, Ybig){
+      // Z = 3*X - 11106 + 9999*Y
+      const threeX = Xbig * 3n;
+      const termY = Ybig * 9999n;
+      return threeX - 11106n + termY;
+    }
+
+    btnGen.addEventListener('click', ()=>{
+      showError('');
+      try{
+        const X = parseBigIntInput(elX.value);
+        const Y = parseBigIntInput(elY.value);
+        const Z = computeZ(X, Y);
+        out.textContent = Z.toString();
+      }catch(e){
+        out.textContent = '—';
+        showError(e.message || '输入错误');
+      }
+    });
+
+    btnCopy.addEventListener('click', async ()=>{
+      const text = out.textContent;
+      if(!text || text === '—'){
+        showError('请先生成结果后再复制');
+        return;
+      }
+      showError('');
+      if(navigator.clipboard && navigator.clipboard.writeText){
+        try{
+          await navigator.clipboard.writeText(text);
+          showToast();
+        }catch(e){
+          // 可能在不安全环境
+          fallbackCopy(text);
+        }
+      }else{
+        fallbackCopy(text);
+      }
+    });
+
+    function fallbackCopy(text){
+      try{
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position = 'fixed';
+        ta.style.left = '-9999px';
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        showToast();
+      }catch(e){
+        showError('复制失败（浏览器不支持）');
+      }
+    }
+
+    // 快捷键：按 Enter 在任一输入框内触发生成
+    [elX, elY].forEach(el=>{
+      el.addEventListener('keydown', (ev)=>{
+        if(ev.key === 'Enter') {
+          ev.preventDefault();
+          btnGen.click();
+        }
+      });
+    });
+
+    // 初始示例
+    elX.value = '';
+    elY.value = '';
+  </script>
+</body>
+</html>
